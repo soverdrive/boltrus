@@ -15,8 +15,8 @@ Usage
 package main
 
 import (
-  "github.com/Sirupsen/logrus"
-	"github.com/weekface/mgorus"
+    "github.com/Sirupsen/logrus"
+	"github.com/albert-widi/boltrus"
 )
 
 log := logrus.New()
