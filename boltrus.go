@@ -1,4 +1,4 @@
-package hook
+package boltrus
 
 import (
 	"time"
@@ -76,7 +76,9 @@ func (bhook *Hooker) Fire(entry *logrus.Entry) error {
 
 	tx, _ := bhook.BoltMap[stash.Level].Begin(true)
 	tx.CreateBucketIfNotExists(messageByte)
+	//this is message log message bucket
 	bucket := tx.Bucket(messageByte)
+
 	putFields(bucket, keyTime, dataByte, dataLength)
 	tx.Commit()
 
@@ -95,10 +97,19 @@ func (bhook *Hooker) Levels() []logrus.Level {
 	}
 }
 
-func putFields(bucket *bolt.Bucket, key []byte, value []byte, dataLength int) {
+func putFields(bucket *bolt.Bucket, key []byte, bucketName []byte, dataLength int) {
+	var dataValue []byte
+
 	if dataLength > 0 {
-		bucket.Put(key, value)
+		dataValue = bucketName
+	} else {
+		dataValue = []byte("no_fields")
 	}
+
+	//this is fields bucket
+	bucket.CreateBucketIfNotExists(dataValue)
+	fieldsBucket := bucket.Bucket(dataValue)
+	fieldsBucket.Put(key, []byte("1"))
 }
 
 //GetPanicList return all panics available in panic boltdb

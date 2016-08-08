@@ -32,6 +32,16 @@ log.WithFields(logrus.Fields{
 }).Error("Boltrus")
 ```
 
+Log Schema
+-----------
+Log Message will be saved as a bucket. Each `log message bucket` could have many different fields that saved as `fields bucket` inside `log message bucket`. Each `fields bucket` will have `timeseries data` for when this particular log message and fields occurs.
+
+```
+Bucket = Log Message
+  -> Bucket = Fields
+    -> key = time, value = 1
+```
+
 Info
 ----
 Each log are separated into different db files.
