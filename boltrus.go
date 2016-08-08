@@ -15,12 +15,14 @@ type Hooker struct {
 	BoltMap map[string]*bolt.DB
 }
 
-var panicdb string = "panic_log.db"
-var fataldb string = "fatal_log.db"
-var errdb string = "err_log.db"
-var warndb string = "warning_log.db"
-var infodb string = "info_log.db"
-var debugdb string = "debug_log.db"
+const (
+	panicdb = "panic_log.db"
+	fataldb = "fatal_log.db"
+	errdb   = "error_log.db"
+	warndb  = "warning_log.db"
+	infodb  = "info_log.db"
+	debugdb = "debug_log.db"
+)
 
 //NewHook add new hook for boltdb
 func NewHook(path string) (*Hooker, error) {
@@ -51,6 +53,7 @@ func openDB(fullPath string, dbName string) *bolt.DB {
 type logrusStash struct {
 	Type        string      `json:"type"`
 	TimeStamp   string      `json:"timestamp"`
+	Date        string      `json:"date"`
 	Sourcehost  string      `json:"host"`
 	Message     string      `json:"message"`
 	Fields      interface{} `json:"fields"`
@@ -64,22 +67,29 @@ func (bhook *Hooker) Fire(entry *logrus.Entry) error {
 	stash := logrusStash{}
 
 	stash.Message = entry.Message
-	stash.TimeStamp = entry.Time.UTC().Format(time.RFC3339Nano)
+	stash.TimeStamp = entry.Time.Format(time.RFC3339Nano)
+	stash.Date = entry.Time.Format("02 Jan 2006")
 	stash.Level = entry.Level.String()
 	stash.Fields = entry.Data
 
 	messageByte := []byte(stash.Message)
 	keyTime := []byte(stash.TimeStamp)
+	keyDate := []byte(stash.Date)
 	//convert fields to json
 	dataByte, _ := json.Marshal(entry.Data)
 	dataLength := len(entry.Data)
 
 	tx, _ := bhook.BoltMap[stash.Level].Begin(true)
-	tx.CreateBucketIfNotExists(messageByte)
-	//this is message log message bucket
-	bucket := tx.Bucket(messageByte)
+	//create bucket for date
+	tx.CreateBucketIfNotExists(keyDate)
+	//accessing the date bucket
+	dateBucket := tx.Bucket(keyDate)
+	//create bucket for log message
+	dateBucket.CreateBucketIfNotExists(messageByte)
+	//accessing message bucket
+	messageBucket := dateBucket.Bucket(messageByte)
 
-	putFields(bucket, keyTime, dataByte, dataLength)
+	putFields(messageBucket, keyTime, dataByte, dataLength)
 	tx.Commit()
 
 	return nil
@@ -97,6 +107,18 @@ func (bhook *Hooker) Levels() []logrus.Level {
 	}
 }
 
+//LogType return available log tag in hook
+func LogType() []string {
+	return []string{
+		"panic",
+		"fatal",
+		"error",
+		"warning",
+		"info",
+		"debug",
+	}
+}
+
 func putFields(bucket *bolt.Bucket, key []byte, bucketName []byte, dataLength int) {
 	var dataValue []byte
 
@@ -106,92 +128,108 @@ func putFields(bucket *bolt.Bucket, key []byte, bucketName []byte, dataLength in
 		dataValue = []byte("no_fields")
 	}
 
-	//this is fields bucket
+	//create fields bucket
 	bucket.CreateBucketIfNotExists(dataValue)
+	//accessing fields bucket
 	fieldsBucket := bucket.Bucket(dataValue)
+	//put timestamp key and value into fields bucket
 	fieldsBucket.Put(key, []byte("1"))
 }
 
-//GetPanicList return all panics available in panic boltdb
-func (bhook *Hooker) GetPanicList() []string {
+//GetLogDate return all date available in a log db
+func (bhook *Hooker) GetLogDate(db string) ([]string, error) {
 	var list []string
 
-	tx, _ := bhook.BoltMap["panic"].Begin(true)
+	tx, err := bhook.BoltMap[db].Begin(true)
+
+	if err != nil {
+		return list, err
+	}
+
 	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
 		list = append(list, string(name))
 		return nil
 	})
 	tx.Commit()
 
-	return list
+	return list, err
 }
 
-//GetFatalList return all fatals available in fatal boltdb
-func (bhook *Hooker) GetFatalList() []string {
+//GetLogList return all error in a log db
+func (bhook *Hooker) GetLogList(db string, date string) ([]string, error) {
 	var list []string
 
-	tx, _ := bhook.BoltMap["fatal"].Begin(true)
-	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
+	tx, err := bhook.BoltMap[db].Begin(true)
+
+	if err != nil {
+		return list, err
+	}
+
+	dateBucket := tx.Bucket([]byte(date))
+
+	dateBucket.Tx().ForEach(func(name []byte, _ *bolt.Bucket) error {
 		list = append(list, string(name))
 		return nil
 	})
+	dateBucket.Tx().Commit()
+
 	tx.Commit()
 
-	return list
+	return list, err
 }
 
-//GetErrorList return all errors available in error boltdb
-func (bhook *Hooker) GetErrorList() []string {
-	var list []string
+//GetLogFieldList return all fields in a log db
+func (bhook *Hooker) GetLogFieldList(db string, date string, message string) (map[string][]string, error) {
+	list := make(map[string][]string)
 
-	tx, _ := bhook.BoltMap["error"].Begin(true)
-	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-		list = append(list, string(name))
+	tx, err := bhook.BoltMap[db].Begin(true)
+
+	if err != nil {
+		return list, err
+	}
+
+	dateBucket := tx.Bucket([]byte(date))
+	messageBucket := dateBucket.Bucket([]byte(message))
+
+	messageBucket.Tx().ForEach(func(fields []byte, fieldsBucket *bolt.Bucket) error {
+		fieldsString := string(fields)
+		fieldsBucket.ForEach(func(key []byte, value []byte) error {
+			list[fieldsString] = append(list[fieldsString], string(key))
+			return nil
+		})
 		return nil
 	})
+	messageBucket.Tx().Commit()
 	tx.Commit()
 
-	return list
+	return list, err
 }
 
-//GetWarningList return all warnings available in warning boltdb
-func (bhook *Hooker) GetWarningList() []string {
-	var list []string
-
-	tx, _ := bhook.BoltMap["warning"].Begin(true)
-	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-		list = append(list, string(name))
-		return nil
-	})
-	tx.Commit()
-
-	return list
+//DeleteLog will delete the log in database in the given time (Deleting date bucket)
+func (bhook *Hooker) DeleteLog(days int) {
+	go scanDelete("panic", days, bhook)
+	go scanDelete("fatal", days, bhook)
+	go scanDelete("error", days, bhook)
+	go scanDelete("warning", days, bhook)
+	go scanDelete("info", days, bhook)
+	go scanDelete("debug", days, bhook)
 }
 
-//GetInfoList return all info available in info boltdb
-func (bhook *Hooker) GetInfoList() []string {
-	var list []string
+func scanDelete(db string, days int, bhook *Hooker) {
+	tx, _ := bhook.BoltMap[db].Begin(true)
 
-	tx, _ := bhook.BoltMap["info"].Begin(true)
-	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-		list = append(list, string(name))
+	tx.ForEach(func(name []byte, bucket *bolt.Bucket) error {
+		logDate, _ := time.Parse("02 Jan 2006", string(name))
+
+		if logDate.Add(time.Hour * 24 * time.Duration(days)).After(time.Now()) {
+			tx.DeleteBucket(name)
+		}
 		return nil
 	})
 	tx.Commit()
-
-	return list
 }
 
-//GetDebugList return all debugs available in debug boltdb
-func (bhook *Hooker) GetDebugList() []string {
-	var list []string
-
-	tx, _ := bhook.BoltMap["debug"].Begin(true)
-	tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-		list = append(list, string(name))
-		return nil
-	})
-	tx.Commit()
-
-	return list
+//Dump will create all dbs text file of the log
+func (bhook *Hooker) Dump(path string) error {
+	return nil
 }

@@ -3,6 +3,10 @@
 
 Hi, Boltrus is a BoltDB hooks for Logrus.
 
+This is not the standard log that it should be, so please modify the schema for your own needs.
+
+Project status: `Experimental`
+
 Install
 -------
 ```shell
@@ -30,16 +34,22 @@ log.WithFields(logrus.Fields{
 	"name": "albert",
 	"job":  "Awesome",
 }).Error("Boltrus")
+
+//you can also delete log in the given days, this will delete all logs older than 7 days
+hooker.DeleteLog(7)
 ```
 
 Log Schema
 -----------
-Log Message will be saved as a bucket. Each `log message bucket` could have many different fields that saved as `fields bucket` inside `log message bucket`. Each `fields bucket` will have `timeseries data` for when this particular log message and fields occurs.
+Each log Message will be saved as a bucket. Each `log message bucket` could have many different fields that saved as `fields bucket` inside `log message bucket`. Each `fields bucket` will have `timeseries data` for when this particular log message and fields occurs.
+
+All logs are saved in a bucket named `log date bucket` where `log message bucket` will be seperated based on the date they logged
 
 ```
-Bucket = Log Message
-  -> Bucket = Fields
-    -> key = time, value = 1
+Bucket = log time
+-> Bucket = Log Message
+    -> Bucket = Fields
+      -> key = timestamp, value = 1
 ```
 
 Info
