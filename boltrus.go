@@ -167,11 +167,10 @@ func (bhook *Hooker) GetLogList(db string, date string) ([]string, error) {
 
 	dateBucket := tx.Bucket([]byte(date))
 
-	dateBucket.Tx().ForEach(func(name []byte, _ *bolt.Bucket) error {
-		list = append(list, string(name))
+	dateBucket.ForEach(func(key []byte, value []byte) error {
+		list = append(list, string(key))
 		return nil
 	})
-	dateBucket.Tx().Commit()
 
 	tx.Commit()
 
@@ -191,15 +190,17 @@ func (bhook *Hooker) GetLogFieldList(db string, date string, message string) (ma
 	dateBucket := tx.Bucket([]byte(date))
 	messageBucket := dateBucket.Bucket([]byte(message))
 
-	messageBucket.Tx().ForEach(func(fields []byte, fieldsBucket *bolt.Bucket) error {
-		fieldsString := string(fields)
-		fieldsBucket.ForEach(func(key []byte, value []byte) error {
-			list[fieldsString] = append(list[fieldsString], string(key))
+	messageBucket.ForEach(func(key []byte, value []byte) error {
+		fieldString := string(key)
+		fieldBucket := messageBucket.Bucket(key)
+
+		fieldBucket.ForEach(func(time []byte, count []byte) error {
+			list[fieldString] = append(list[fieldString], string(time))
 			return nil
 		})
 		return nil
 	})
-	messageBucket.Tx().Commit()
+
 	tx.Commit()
 
 	return list, err
